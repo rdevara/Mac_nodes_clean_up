@@ -15,28 +15,35 @@ node('master') {
         error "Failed to mark the node temporarily offline for the Cleanup_Job: ${e.message}"
     }
 
-    // Step 2: Poll for running builds and wait for them to finish
-    def isIdle = false
-    while (!isIdle) {
-        def runningBuilds = Jenkins.instance.getComputers().collectMany { it.executors }
-            .findAll { it.currentExecutable != null && it.name == NODE_NAME }
-        
-        echo "Running builds on ${NODE_NAME}: ${runningBuilds.size()}"
-        
-        if (runningBuilds.isEmpty()) {
-            isIdle = true
-        } else {
-            echo "Waiting for builds to finish on ${NODE_NAME}..."
+    // Step 2: Check for running builds and wait for them to finish
+    def runningJobCount = 1
+    def maxWaitTimeInSeconds = 3600 // Adjust as needed (e.g., one hour)
+
+    while (runningJobCount > 0 && maxWaitTimeInSeconds > 0) {
+        runningJobCount = 0
+
+        Jenkins.instance.nodes.each { jenkinsNode ->
+            if (jenkinsNode.getNodeName() == NODE_NAME) {
+                runningJobCount += jenkinsNode.toComputer().executors.count { executor ->
+                    def build = executor.getCurrentExecutable()
+                    build != null
+                }
+            }
+        }
+
+        if (runningJobCount > 0) {
+            echo "Waiting for $runningJobCount builds to finish on ${NODE_NAME}..."
             sleep(time: 60, unit: 'SECONDS') // Wait for a minute before checking again
+            maxWaitTimeInSeconds -= 60
         }
     }
-    
-    if (isIdle) {
-        echo "No other builds are running on the node for the Cleanup_Job."
+
+    if (runningJobCount == 0) {
+        echo "All builds have finished on the node for the Cleanup_Job."
+    } else {
+        echo "Maximum wait time reached, but some builds are still running on the node."
     }
-    
-    sleep(time: 60, unit: 'SECONDS')
-    
+
     // Step 3: Enable the Jenkins node to bring it back online
     try {
         def node = Jenkins.instance.getNode(NODE_NAME)
