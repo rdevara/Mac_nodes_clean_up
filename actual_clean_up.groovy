@@ -1,7 +1,7 @@
 node('master') {
     def NODE_NAME = params.NODE_NAME ?: 'rdevara'
     echo "Node Name is: ${NODE_NAME}"
-    
+
     // Step 1: Disable the Jenkins node
     try {
         def node = Jenkins.instance.getNode(NODE_NAME)
@@ -44,7 +44,19 @@ node('master') {
         echo "Maximum wait time reached, but some builds are still running on the node."
     }
 
-    // Step 3: Enable the Jenkins node to bring it back online
+    // Step 3: Use SSH credentials to run cleanup commands on the node
+    def nodeIpAddress = '192.168.1.72' // Replace with the actual IP address of the Jenkins agent
+
+    withCredentials([sshUserPrivateKey(credentialsId: 'rajkumarrao', keyFileVariable: 'SSH_KEY_FILE')]) {
+        try {
+            sh(script: "ssh -i \$SSH_KEY_FILE user@${nodeIpAddress} 'rm -fr /tmp/caches/*'", returnStatus: true)
+            echo "Workspace cleanup commands executed on the node."
+        } catch (Exception e) {
+            error "Failed to run cleanup commands on the node: ${e.message}"
+        }
+    }
+
+    // Step 4: Enable the Jenkins node to bring it back online
     try {
         def node = Jenkins.instance.getNode(NODE_NAME)
         if (node.toComputer().isTemporarilyOffline()) {
